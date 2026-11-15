@@ -10,7 +10,7 @@ For each member in members.csv and each chosen result case:
   - checks the diagram is continuous at the joins between beams
   - prints the minimum and maximum of each force and writes member_forces.csv
 
-Quantities, tension positive, in kN and kNm (if the model is in N and m):
+Quantities, tension positive, in kN and kNm (model in m, with N, kN or MN):
   N   axial force
   Vy  shear along axis 1  (Strand7 SF1; with shear area SA1)
   Vz  shear along axis 2  (Strand7 SF2; with shear area SA2, the web)
@@ -57,12 +57,18 @@ def result_file(uid, path, combination_code):
         S.St7CloseResultFile(uid)
 
 
+FORCE_TO_KN = {"fuNEWTON": 1e-3, "fuKILONEWTON": 1.0, "fuMEGANEWTON": 1e3}
+
+
 def force_scale(uid):
+    """(factor from model forces to kN, label). Supported: lengths in m, forces in N, kN or MN."""
     units = (ctypes.c_long * S.kLastUnit)()
     check(S.St7GetUnits(uid, units))
-    if units[S.ipLENGTHU] == S.luMETRE and units[S.ipFORCEU] == S.fuNEWTON:
-        return 1e-3, "kN, kNm"
-    print("WARNING: model is not in N and m; values are left in model units.")
+    if units[S.ipLENGTHU] == S.luMETRE:
+        for name, factor in FORCE_TO_KN.items():
+            if units[S.ipFORCEU] == getattr(S, name):
+                return factor, "kN, kNm"
+    print("WARNING: model is not in m with N, kN or MN; values are left in model units.")
     return 1.0, "model units"
 
 
@@ -139,7 +145,9 @@ def assemble(uid, m, case, scale, grid=None):
                 "N": axial * scale,                    # tension positive, direction-independent
                 "Vy": c.f3 * c.f1 * sf1 * scale,       # shear: flips with axis 3 and the shear axis
                 "Vz": c.f3 * c.f2 * sf2 * scale,
-                "T": c.f3 * torque * scale,            # torque: flips with axis 3
+                "T": torque * scale,                   # torque: direction-independent, like N
+                                                       # (reversing axis 3 reverses both the twist
+                                                       # axis and d/dx; checked in check_portal.py)
                 "My": c.f2 * bm2 * scale,              # moment: flips with the shear axis only
                 "Mz": c.f1 * bm1 * scale,
             }))
@@ -150,15 +158,17 @@ def assemble(uid, m, case, scale, grid=None):
 
 def continuity_warnings(m, by_beam):
     """Moments and torque must be continuous across a node unless a moment is applied there."""
-    peak = max((abs(v[q]) for _, pts in by_beam for _, v in pts for q in ("My", "Mz", "T")),
-               default=0.0)
-    tol = max(1e-3, 1e-3 * peak)
+    # Tolerance per quantity, from that quantity's own peak, so a sign error in a small torque is
+    # not hidden by a large bending moment; with a small floor from the largest of the three.
+    peaks = {q: max((abs(v[q]) for _, pts in by_beam for _, v in pts), default=0.0)
+             for q in ("My", "Mz", "T")}
+    floor = 1e-6 * max(max(peaks.values()), 1e-3)
     out = []
     for i in range(1, len(by_beam)):
         (c1, pts1), (c2, pts2) = by_beam[i - 1], by_beam[i]
         left, right = pts1[-1][1], pts2[0][1]
         for q in ("My", "Mz", "T"):
-            if abs(left[q] - right[q]) > tol:
+            if abs(left[q] - right[q]) > max(1e-3 * peaks[q], floor):
                 out.append(f"{q} jumps at node {m.nodes[i]} between beam {c1.beam} "
                            f"({left[q]:.3f}) and beam {c2.beam} ({right[q]:.3f})")
     return out

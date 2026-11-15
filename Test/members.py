@@ -205,7 +205,7 @@ class BeamInChain:
     # Sign factors (+1/-1) relating this beam's axes to the member's reference axes.
     # f3: beam axis 3 vs member direction; f1/f2: beam axis 1/2 vs the first beam's axes.
     # Used to convert Strand7 forces into the member's sign convention
-    # (shear x f3*f_axis, moment x f_axis, axial x 1, torque x f3).
+    # (shear x f3*f_axis, moment x f_axis, axial x 1, torque x 1).
     f1: int
     f2: int
     f3: int

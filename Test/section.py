@@ -44,6 +44,19 @@ def length_factor(uid):
     raise SectionError("unknown model length unit")
 
 
+STRESS_TO_PA = {"suPASCAL": 1.0, "suKILOPASCAL": 1e3, "suMEGAPASCAL": 1e6}
+
+
+def stress_factor(uid):
+    """Factor from the model's stress unit (Strand7 keeps a separate one) to Pa."""
+    units = (ctypes.c_long * S.kLastUnit)()
+    check(S.St7GetUnits(uid, units))
+    for name, factor in STRESS_TO_PA.items():
+        if getattr(S, name) == units[S.ipSTRESSU]:
+            return factor
+    raise SectionError("model stress unit not supported (only Pa, kPa and MPa)")
+
+
 def read_i_section(uid, prop):
     """Dimensions (in metres) and Strand7's own values for a beam property."""
     integers = (ctypes.c_long * 5)()
@@ -78,9 +91,10 @@ def read_i_section(uid, prop):
 
     material = (ctypes.c_double * 9)()
     check(S.St7GetBeamMaterialData(uid, prop, material))
-    # Strand7 gives the modulus and shear modulus in model force and length units. The checks
-    # run only on models in N and m (see ec3_run.py), so these are Pa.
-    E_model, G_model = material[S.ipBeamModulus], material[S.ipBeamShear]
+    # Strand7 gives the modulus and shear modulus in the model's STRESS unit: convert to Pa.
+    stress_to_pa = stress_factor(uid)
+    E_model = material[S.ipBeamModulus] * stress_to_pa
+    G_model = material[S.ipBeamShear] * stress_to_pa
 
     return {
         "E": E_model, "G": G_model,

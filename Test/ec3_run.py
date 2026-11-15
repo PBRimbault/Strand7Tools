@@ -72,7 +72,7 @@ def member_section(uid, m, settings, grades):
         sec.E, sec.G = s["E"], s["G"]
         if not (150e9 <= sec.E <= 250e9) or not (0.30 <= sec.G / sec.E <= 0.55):
             raise SectionError(f"the beam material has E = {sec.E:g}, G = {sec.G:g}: these should "
-                               f"be about 210e9 and 81e9 Pa (model in N and m). Check the "
+                               f"be about 210e9 and 81e9 Pa. Check the "
                                f"material, or set source = \"ec3\" in settings.toml")
     else:
         sec.E, sec.G = settings.E_ec3 * 1e6, settings.G_ec3 * 1e6
@@ -375,8 +375,8 @@ def main():
     with model_session() as uid:
         scale, unit_label = force_scale(uid)
         if unit_label != "kN, kNm":
-            raise RuntimeError("the checks need a model in N and m (forces are converted to "
-                               "kN and kNm); change the model units or extend force_scale()")
+            raise RuntimeError("the checks need a model in metres with forces in N, kN or MN "
+                               "(they are converted to kN and kNm); change the model units")
         members = load_members(uid)
         if not members:
             print("No members could be built; fix members.csv first (run members.py).")

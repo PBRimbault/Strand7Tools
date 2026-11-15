@@ -8,8 +8,10 @@ venv/
 *.st7
 *.LSA
 *.LSL
+*.LSC
 *.lsa
 *.lsl
+*.lsc
 *.st7~
 *.bak
 
