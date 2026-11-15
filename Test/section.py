@@ -76,7 +76,14 @@ def read_i_section(uid, prop):
     if (abs(b1 - b2) > 1e-6 * d_ or abs(tf1 - tf2) > 1e-6 * d_ or abs(r1 - r2) > 1e-6 * d_):
         raise SectionError("monosymmetric I-section not supported yet")
 
+    material = (ctypes.c_double * 9)()
+    check(S.St7GetBeamMaterialData(uid, prop, material))
+    # Strand7 gives the modulus and shear modulus in model force and length units. The checks
+    # run only on models in N and m (see ec3_run.py), so these are Pa.
+    E_model, G_model = material[S.ipBeamModulus], material[S.ipBeamShear]
+
     return {
+        "E": E_model, "G": G_model,
         "name": name, "kind": kind, "r_known": r_known,
         "h": d_ * f, "b": b1 * f, "tw": tw * f, "tf": tf1 * f, "r": r1 * f,
         "strand7": {"A": sec[S.ipAREA] * f ** 2, "Iy": sec[S.ipI11] * f ** 4,

@@ -53,6 +53,8 @@ class ISection:
     r: float
     eta: float
     props: dict = field(default_factory=dict)
+    E: float = None             # Pa, set by the caller (member buckling needs it)
+    G: float = None             # Pa
 
     @classmethod
     def from_dims(cls, name, h, b, tw, tf, r, eta=1.0):

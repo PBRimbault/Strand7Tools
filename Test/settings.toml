@@ -23,6 +23,14 @@ gamma_M0 = 1.00         # resistance of cross-sections           (UK NA: 1.00)
 gamma_M1 = 1.00         # resistance of members to instability   (UK NA: 1.00)
 gamma_M2 = 1.10         # net sections and connections           (UK NA: 1.10)
 
+[buckling]
+# Member buckling, EN 1993-1-1 6.3. These are the EN recommended values; the UK National Annex
+# does not change them for the general LTB case as far as I know - CHECK against your NA.
+lambda_0 = 0.2          # flexural buckling plateau length (6.3.1.2)
+lambda_LT0 = 0.2        # LTB plateau length, general case (6.3.2.2)
+beta_LT = 1.0           # LTB, general case (6.3.2.2)
+high_strength_above = 420   # fy (N/mm2) above this uses the "hs" curves (S460 column, Table 6.2)
+
 [shear]
 # Lower limit on the shear area Av,z:  Av,z >= eta * hw * tw  (EN 1993-1-1, 6.2.6(3)).
 # EN 1993-1-5 recommends 1.2; the National Annex may specify a different value - check it.

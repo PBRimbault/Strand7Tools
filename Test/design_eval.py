@@ -13,6 +13,7 @@ with forces in kN and kNm, in the member axes, tension positive.
 from dataclasses import dataclass, field
 
 from ec3_checks import check_station
+from ec3_buckling import check_member_buckling
 
 QUANTITIES = ["N", "Vy", "Vz", "T", "My", "Mz"]
 CHECKS = ["N", "My", "Mz", "Vy", "Vz", "T", "N+M"]
@@ -123,3 +124,14 @@ def summarise(member_id, design_case, evals):
     g_val, g_name, e = best
     return Summary(member_id, design_case, len(evals), max_class, g_name, g_val, e.beam, e.x,
                    max_by_check, not_checked, notes)
+
+
+def buckling_check(sec, fy, E, G, gM1, bk, evals, member_length, lengths, trace=False):
+    """
+    Member buckling (EC3 6.3.1 and 6.3.2) for one member and design case, from its station
+    evaluations. lengths = {"Lcr_y", "Lcr_z", "Lw"} in m (None = switched off).
+    """
+    stations = [(e.x, e.forces["N"] * 1e3, e.forces["My"] * 1e3) for e in evals]
+    cls = max((e.result.cls for e in evals), default=0)
+    return check_member_buckling(sec, fy, E, G, gM1, bk, stations, member_length, cls,
+                                 lengths["Lcr_y"], lengths["Lcr_z"], lengths["Lw"], trace)
