@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Strand7 models and result files (large binaries; regenerate results by solving)
+*.st7
+*.LSA
+*.LSL
+*.lsa
+*.lsl
+*.st7~
+*.bak
+
+# Editor
+.vscode/

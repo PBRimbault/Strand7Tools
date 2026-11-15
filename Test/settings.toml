@@ -1,0 +1,29 @@
+# Design settings for the EC3 checks.
+#
+# Defaults follow the UK National Annex to BS EN 1993-1-1.
+# Check every value against the National Annex you are designing to.
+
+[material]
+# Where E and G come from:
+#   "model" - read from the Strand7 beam material (keeps the checks consistent with the analysis)
+#   "ec3"   - use E_ec3 and G_ec3 below
+source = "model"
+E_ec3 = 210000.0        # N/mm2  (EN 1993-1-1, 3.2.6)
+G_ec3 = 81000.0         # N/mm2  (EN 1993-1-1, 3.2.6)
+
+# Steel grade used when a member has no grade in members.csv
+default_grade = "S355"
+
+# Thickness used to look up fy and fu in steel_grades.csv:
+#   "max" = thickest element of the section (flange or web)
+thickness_rule = "max"
+
+[partial_factors]
+gamma_M0 = 1.00         # resistance of cross-sections           (UK NA: 1.00)
+gamma_M1 = 1.00         # resistance of members to instability   (UK NA: 1.00)
+gamma_M2 = 1.10         # net sections and connections           (UK NA: 1.10)
+
+[shear]
+# Lower limit on the shear area Av,z:  Av,z >= eta * hw * tw  (EN 1993-1-1, 6.2.6(3)).
+# EN 1993-1-5 recommends 1.2; the National Annex may specify a different value - check it.
+eta = 1.0

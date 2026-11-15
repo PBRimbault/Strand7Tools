@@ -1,0 +1,27 @@
+# Steel grades: yield strength fy and ultimate strength fu by thickness (N/mm2).
+#
+# One row per thickness band. A row applies when the thickness is <= t_max_mm
+# and above the previous row's t_max_mm. Keep each grade's rows in ascending t_max_mm.
+#
+# Values are the EN 10025-2 minimum yield strength (ReH) and minimum tensile strength (Rm),
+# which the UK NA to BS EN 1993-1-1 allows for fy and fu. Check against the standard
+# before relying on them.
+#
+# To add a grade (for example S450 or S460), add its rows below. S450 and S460 are
+# not included because their strengths come from different standard parts and depend on the delivery condition.
+grade,t_max_mm,fy,fu
+S235,16,235,360
+S235,40,225,360
+S235,63,215,360
+S235,80,215,360
+S235,100,215,360
+S275,16,275,410
+S275,40,265,410
+S275,63,255,410
+S275,80,245,410
+S275,100,235,410
+S355,16,355,470
+S355,40,345,470
+S355,63,335,470
+S355,80,325,470
+S355,100,315,470

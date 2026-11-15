@@ -1,0 +1,29 @@
+# Member table - one row per design member. Edit in Excel or a text editor.
+# Lines starting with # are ignored. Use ; (not a comma) inside a cell.
+#
+# A member is a continuous, straight, constant-section chain of beams, running from one
+# restraint to the next. Its end nodes are where it is restrained.
+#
+# member      : member number or name
+# beams       : Strand7 beam numbers, e.g.  1-10   or   1;2;3   or   1-4;7
+#               or  ID=5  for every beam whose Beam ID is 5
+# buckling_y  : yes/no, flexural buckling about the y axis (strong axis)
+# kcr_y       : effective length factor about y   (Lcr,y = k x member length)
+# lcr_y       : optional - type a length to override k x member length
+#               (e.g. a column braced at mid-height that still buckles over its full height)
+# buckling_z, kcr_z, lcr_z : same for the z axis (weak axis)
+# ltb         : yes/no, lateral-torsional buckling
+# kz          : LTB effective length factor   (Lw = kz x member length)
+#               1.0 = both ends fork-restrained. A free end (cantilever tip) needs a larger value.
+# kw          : warping restraint factor (stored for later)
+# lw          : optional - type a length to override kz x member length
+# grade       : steel grade, a name from steel_grades.csv (S235, S275, S355, S460 ...)
+#               leave blank to use the default grade in settings.toml
+#
+# Note kz and kcr_z are independent: kz sets the LTB length, kcr_z the weak-axis buckling length.
+member,beams,buckling_y,kcr_y,lcr_y,buckling_z,kcr_z,lcr_z,ltb,kz,kw,lw,grade,comment
+1,1-4,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,test member 1
+2,5-8,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,test member 2
+3,9,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,test member 3
+4,10,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,test member 4
+5,11,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,test member 5
