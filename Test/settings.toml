@@ -7,6 +7,8 @@
 # Where E and G come from:
 #   "model" - read from the Strand7 beam material (keeps the checks consistent with the analysis)
 #   "ec3"   - use E_ec3 and G_ec3 below
+# With "model", E_ec3 and G_ec3 are the reference values: ec3_run.py warns if the model
+# material differs from them by more than 1% (the model values are still used).
 source = "model"
 E_ec3 = 210000.0        # N/mm2  (EN 1993-1-1, 3.2.6)
 G_ec3 = 81000.0         # N/mm2  (EN 1993-1-1, 3.2.6)
@@ -23,6 +25,11 @@ gamma_M0 = 1.00         # resistance of cross-sections           (UK NA: 1.00)
 gamma_M1 = 1.00         # resistance of members to instability   (UK NA: 1.00)
 gamma_M2 = 1.10         # net sections and connections           (UK NA: 1.10)
 
+[shear]
+# Lower limit on the shear area Av,z:  Av,z >= eta * hw * tw  (EN 1993-1-1, 6.2.6(3)).
+# EN 1993-1-5 recommends 1.2; the National Annex may specify a different value - check it.
+eta = 1.0
+
 [buckling]
 # Member buckling, EN 1993-1-1 6.3. These are the EN recommended values; the UK National Annex
 # does not change them for the general LTB case as far as I know - CHECK against your NA.
@@ -30,8 +37,3 @@ lambda_0 = 0.2          # flexural buckling plateau length (6.3.1.2)
 lambda_LT0 = 0.2        # LTB plateau length, general case (6.3.2.2)
 beta_LT = 1.0           # LTB, general case (6.3.2.2)
 high_strength_above = 420   # fy (N/mm2) above this uses the "hs" curves (S460 column, Table 6.2)
-
-[shear]
-# Lower limit on the shear area Av,z:  Av,z >= eta * hw * tw  (EN 1993-1-1, 6.2.6(3)).
-# EN 1993-1-5 recommends 1.2; the National Annex may specify a different value - check it.
-eta = 1.0

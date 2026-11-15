@@ -48,6 +48,7 @@ WORKED = []                 # cross-section worked calculations, e.g. [("4", "TE
 WORKED_BUCKLING = []        # member buckling worked calculations, e.g. [("4", "ULS_S7")]
 OUTPUT_CSV = "ec3_results.csv"
 OUTPUT_BUCKLING_CSV = "ec3_buckling.csv"
+E_G_TOLERANCE = 0.01        # warn if the model's E or G differs from E_ec3 / G_ec3 by more than this
 # -------------------------------------------------------
 
 
@@ -82,6 +83,31 @@ def member_section(uid, m, settings, grades):
         warnings.append("no root radius in the section data: r = 0 was used, so Wpl and Av "
                         "are slightly low")
     return sec, grade, fy * 1e6, warnings
+
+
+def material_warnings(members, info, settings):
+    """
+    With material source "model", the Strand7 E and G are used on purpose (the same stiffness
+    as the analysis). Say so, once per beam property, whenever they differ from the code values
+    (E_ec3, G_ec3 in settings.toml) by more than E_G_TOLERANCE, so a wrong material is noticed.
+    """
+    if settings.material_source != "model":
+        return []
+    users = {}
+    for m in members:
+        users.setdefault(m.chain[0].prop, []).append(m.definition.member_id)
+    out = []
+    for prop, mids in users.items():
+        sec = info[mids[0]][0]
+        for sym, value, ref_mpa in (("E", sec.E, settings.E_ec3), ("G", sec.G, settings.G_ec3)):
+            ref = ref_mpa * 1e6
+            if abs(value / ref - 1) > E_G_TOLERANCE:
+                out.append(f"{sym} = {value / 1e9:.1f} GPa in the Strand7 material of property "
+                           f"{prop} (members {', '.join(mids)}) differs from {ref / 1e9:.1f} GPa "
+                           f"(EN 1993-1-1 3.2.6, {sym}_ec3 in settings.toml) by "
+                           f"{(value / ref - 1) * 100:+.1f}%. The model value is used; update the "
+                           f"Strand7 material if this is not intended.")
+    return out
 
 
 # ----------------------------------------------------------------------
@@ -426,6 +452,11 @@ def main():
     best = {mid: min(lst, key=rank) for mid, lst in summaries.items() if lst}
 
     print_members(usable, info)
+    material_notes = material_warnings(usable, info, settings)
+    for w in material_notes:
+        print(f"WARNING: {w}")
+    if material_notes:
+        print()
     print_summary(usable, info, best)
     if SHOW_DETAIL:
         print_detail(usable, summaries)
