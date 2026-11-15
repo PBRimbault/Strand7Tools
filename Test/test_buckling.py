@@ -144,6 +144,28 @@ r = buckling_check(sec, FY, E, G, GM1, bk, evals, L, {"Lcr_y": L, "Lcr_z": L, "L
 expect("via design_eval: |My|,Ed = 49 kNm", r.values["My_Ed"] / 1e3, 49.0)
 expect_true("worked calculation text produced", len(r.trace) > 10)
 
+print("8b. Compression with bending needs 6.3.3: reported as not fully checked")
+NPL = A * FY
+
+
+def interaction_flagged(n, my, mz=0.0, lengths=(6.0, 6.0, 6.0)):
+    st = stations(6.0, lambda s: n, lambda s: my * 4 * s * (1 - s))
+    r = check_member_buckling(sec, FY, E, G, GM1, bk, st, 6.0, 1, *lengths, mz_ed=mz)
+    return any("6.3.3" in reason for reason in r.not_checked), r
+
+
+flagged, r = interaction_flagged(-100e3, 50e3)
+expect_true("100 kN compression + 50 kNm My: flagged", flagged)
+expect_true("... and the N and LTB results are still given", "Nb,z" in r.util and "LTB" in r.util)
+expect_true("100 kN compression + 5 kNm Mz only: flagged", interaction_flagged(-100e3, 0.0, 5e3)[0])
+expect_true("100 kN TENSION + 50 kNm My: not flagged", not interaction_flagged(100e3, 50e3)[0])
+expect_true("100 kN compression, no bending: not flagged", not interaction_flagged(-100e3, 0.0)[0])
+expect_true("50 kNm My, no axial force: not flagged", not interaction_flagged(0.0, 50e3)[0])
+expect_true("solver noise (N = 0.5 kN < 0.1% Npl) + 50 kNm: not flagged",
+            0.5e3 < 1e-3 * NPL and not interaction_flagged(-0.5e3, 50e3)[0])
+expect_true("all buckling checks switched off: not flagged",
+            not interaction_flagged(-100e3, 50e3, lengths=(None, None, None))[0])
+
 print("9. settings.toml without a [buckling] section still loads (defaults)")
 tmp = tempfile.mkdtemp()
 try:

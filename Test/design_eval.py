@@ -132,6 +132,8 @@ def buckling_check(sec, fy, E, G, gM1, bk, evals, member_length, lengths, trace=
     evaluations. lengths = {"Lcr_y", "Lcr_z", "Lw"} in m (None = switched off).
     """
     stations = [(e.x, e.forces["N"] * 1e3, e.forces["My"] * 1e3) for e in evals]
+    mz_ed = max((abs(e.forces["Mz"]) * 1e3 for e in evals), default=0.0)
     cls = max((e.result.cls for e in evals), default=0)
     return check_member_buckling(sec, fy, E, G, gM1, bk, stations, member_length, cls,
-                                 lengths["Lcr_y"], lengths["Lcr_z"], lengths["Lw"], trace)
+                                 lengths["Lcr_y"], lengths["Lcr_z"], lengths["Lw"], trace,
+                                 mz_ed=mz_ed)

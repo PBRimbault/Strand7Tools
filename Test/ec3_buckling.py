@@ -8,6 +8,10 @@ The checks are made once per member and design case, using the worst values over
     My_Ed = largest |My| anywhere in the member
 This is safe, and it is what a hand check normally does.
 
+Not implemented yet: the bending and axial compression interaction (6.3.3). A member with both
+compression and bending (above INTERACTION_TOL of Npl / Mpl, i.e. not solver noise) is reported
+as NOT FULLY CHECKED, so it can never show as OK.
+
 Mcr (lateral-torsional buckling)
     EN 1993-1-1 gives no formula for Mcr. Here Mcr is calculated from the real bending moment
     diagram of the member and design case: the elastic buckling problem
@@ -176,13 +180,18 @@ def kN(x):
     return f"{x / 1e3:.3f}"
 
 
+INTERACTION_TOL = 1e-3      # N_Ed / Npl and M_Ed / Mpl below this count as zero (solver noise)
+
+
 def check_member_buckling(sec, fy, E, G, gM1, bk, stations, member_length, cls,
-                          Lcr_y, Lcr_z, Lw, trace=False):
+                          Lcr_y, Lcr_z, Lw, trace=False, mz_ed=0.0):
     """
     sec      : ISection
     stations : [(x, N, My)] over the member, N and N*m, tension positive (x from member start)
     cls      : section class (the highest over the member); 4 -> not checked
     Lcr_y, Lcr_z, Lw : effective lengths in m, None = that check is switched off
+    mz_ed    : largest |Mz| anywhere in the member, N*m (only used to decide whether the
+               bending and axial compression interaction, 6.3.3, is needed)
     """
     lines = []
 
@@ -194,11 +203,11 @@ def check_member_buckling(sec, fy, E, G, gM1, bk, stations, member_length, cls,
     P = sec.props
     A, Iy, Iz, It, Iw = P["A"], P["Iy"], P["Iz"], P["It"], P["Iw"]
     fy_mpa = fy / 1e6
-    n_ed = max((-n for _, n, _ in stations), default=0.0)               # compression, N
+    n_ed = max(0.0, max((-n for _, n, _ in stations), default=0.0))     # compression, N (>= 0)
     x_n = max(stations, key=lambda s: -s[1])[0] if stations else 0.0
     m_ed = max((abs(m) for _, _, m in stations), default=0.0)
     x_m = max(stations, key=lambda s: abs(s[2]))[0] if stations else 0.0
-    res.values.update({"N_Ed": n_ed, "x_N": x_n, "My_Ed": m_ed, "x_M": x_m})
+    res.values.update({"N_Ed": n_ed, "x_N": x_n, "My_Ed": m_ed, "x_M": x_m, "Mz_Ed": mz_ed})
 
     tr("MEMBER BUCKLING CHECK  (EN 1993-1-1, clause 6.3)")
     tr(f"Section : {sec.name}   fy = {fy_mpa:g} N/mm2   E = {E/1e9:.1f} kN/mm2   "
@@ -306,7 +315,30 @@ def check_member_buckling(sec, fy, E, G, gM1, bk, stations, member_length, cls,
                              f"(approximate)")
     tr()
 
+    # --- 6.3.3 bending and axial compression: not implemented yet --------------------------
+    # The checks above treat N and M separately. A member with both compression and bending
+    # needs the interaction (6.61)/(6.62), so it must not be reported as fully checked.
+    compression = n_ed > INTERACTION_TOL * npl
+    bending = (m_ed > INTERACTION_TOL * P["Wpl_y"] * fy
+               or mz_ed > INTERACTION_TOL * P["Wpl_z"] * fy)
+    any_buckling = Lcr_y is not None or Lcr_z is not None or Lw is not None
+    tr("3. BENDING AND AXIAL COMPRESSION (6.3.3)")
+    if compression and bending and any_buckling:
+        res.not_checked.append(
+            f"bending and axial compression interaction (6.3.3) is not implemented: "
+            f"N_Ed = {n_ed/1e3:.1f} kN with |My| = {m_ed/1e3:.1f} kNm, |Mz| = {mz_ed/1e3:.1f} kNm")
+        tr(f"   N_Ed = {kN(n_ed)} kN with |My|,Ed = {kN(m_ed)} kNm and |Mz|,Ed = {kN(mz_ed)} kNm:")
+        tr("   NOT CHECKED - the interaction (6.61)/(6.62) is not implemented yet.")
+    elif not any_buckling:
+        tr("   all buckling checks switched off in members.csv")
+    else:
+        tr("   not needed: the member is not under both compression and bending")
+    tr()
+
     if res.util:
         name, value = res.governing
-        tr(f"GOVERNING: {name} = {value:.3f}   " + ("OK" if value <= 1.0 else "FAILS"))
+        verdict = "FAILS" if value > 1.0 else "INCOMPLETE" if res.not_checked else "OK"
+        tr(f"GOVERNING: {name} = {value:.3f}   {verdict}"
+           + ("   (NOT FULLY CHECKED: " + "; ".join(res.not_checked) + ")"
+              if res.not_checked else ""))
     return res
