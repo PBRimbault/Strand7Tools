@@ -1,7 +1,7 @@
 """
 EC3 (EN 1993-1-1) member buckling checks, clause 6.3: flexural buckling (6.3.1) and
-lateral-torsional buckling, general case (6.3.2.2). Doubly symmetric I-sections.
-No Strand7 needed. Internal units are SI: N, m, Pa and N*m.
+lateral-torsional buckling, general case (6.3.2.2). Pure calculation: no Strand7 and no
+printing (worked.py turns a result into a worked calculation). SI units: N, m, Pa and N*m.
 
 The checks are made once per member and design case, using the worst values over the member:
     N_Ed  = largest compression anywhere in the member
@@ -32,9 +32,8 @@ Mcr (lateral-torsional buckling)
 import math
 from dataclasses import dataclass, field
 
-from section_math import eng
-
 PI = math.pi
+INTERACTION_TOL = 1e-3      # N_Ed / Npl and M_Ed / Mpl below this count as zero (solver noise)
 
 
 # ----------------------------------------------------------------------
@@ -118,32 +117,8 @@ def c1_from_diagram(xs, ms, length, E, G, Iz, It, Iw, modes=16, samples=800):
 
 
 # ----------------------------------------------------------------------
-# Buckling curves
+# Reduction factor
 # ----------------------------------------------------------------------
-
-def _row_matches(row, hb, tf_mm):
-    return (hb > row.get("hb_over", -math.inf) and hb <= row.get("hb_upto", math.inf)
-            and tf_mm <= row.get("tf_upto", math.inf))
-
-
-def flexural_curve(bk, sec, fy_mpa, axis):
-    """Buckling curve name for flexural buckling about 'y' or 'z' (Table 6.2, rolled I)."""
-    hb, tf_mm = sec.h / sec.b, sec.tf * 1e3
-    for row in bk.flexural_rows:
-        if _row_matches(row, hb, tf_mm):
-            hs = fy_mpa > bk.high_strength_above
-            return row.get(axis + "_hs", row[axis]) if hs else row[axis]
-    raise ValueError("no flexural buckling curve row fits this section")
-
-
-def ltb_curve(bk, sec):
-    """Buckling curve name for lateral-torsional buckling (Table 6.4, rolled I)."""
-    hb, tf_mm = sec.h / sec.b, sec.tf * 1e3
-    for row in bk.ltb_rows:
-        if _row_matches(row, hb, tf_mm):
-            return row["curve"]
-    raise ValueError("no LTB curve row fits this section")
-
 
 def reduction_factor(lam, alpha, lam0, beta, cap_inverse_square):
     """chi from EN 1993-1-1 (6.49) / (6.56); returns (phi, chi). chi = 1 on the plateau."""
@@ -162,11 +137,21 @@ def reduction_factor(lam, alpha, lam0, beta, cap_inverse_square):
 
 @dataclass
 class BucklingResult:
-    util: dict = field(default_factory=dict)      # "Nb,y", "Nb,z", "LTB" -> utilisation
-    values: dict = field(default_factory=dict)    # numbers behind the checks
+    section: object             # Section
+    steel: object               # Steel
+    gM1: float
+    bk: object                  # settings.Buckling
+    member_length: float
+    cls: int
+    util: dict = field(default_factory=dict)       # "Nb,y", "Nb,z", "LTB" -> utilisation
+    values: dict = field(default_factory=dict)     # numbers behind the checks (SI)
+    # what happened to each check: "off" (switched off in the member table), "none" (no
+    # compression / no bending, nothing to check), "checked"; None = not reached (class 4)
+    flexural_state: dict = field(default_factory=dict)      # "y", "z" -> state
+    ltb_state: str = None
+    interaction_state: str = None   # "flagged", "off" (all buckling off), "not needed"
     not_checked: list = field(default_factory=list)
     notes: list = field(default_factory=list)
-    trace: list = field(default_factory=list)
 
     @property
     def governing(self):
@@ -175,170 +160,120 @@ class BucklingResult:
         name = max(self.util, key=lambda k: self.util[k])
         return name, self.util[name]
 
+    @property
+    def status(self):
+        """FAILS wins even if part of the check was not possible; OK only if all was checked."""
+        _, value = self.governing
+        if value is not None and value > 1.0:
+            return "FAILS (incomplete)" if self.not_checked else "FAILS"
+        if value is None:
+            return "NOT CHECKED"
+        return "INCOMPLETE" if self.not_checked else "OK"
 
-def kN(x):
-    return f"{x / 1e3:.3f}"
 
-
-INTERACTION_TOL = 1e-3      # N_Ed / Npl and M_Ed / Mpl below this count as zero (solver noise)
-
-
-def check_member_buckling(sec, fy, E, G, gM1, bk, stations, member_length, cls,
-                          Lcr_y, Lcr_z, Lw, trace=False, mz_ed=0.0):
+def check_member_buckling(sec, steel, gM1, bk, stations, member_length, cls,
+                          Lcr_y, Lcr_z, Lw, mz_ed=0.0):
     """
-    sec      : ISection
+    sec      : Section
+    steel    : Steel (fy, E, G)
+    bk       : settings.Buckling (curves, imperfection factors, plateau lengths)
     stations : [(x, N, My)] over the member, N and N*m, tension positive (x from member start)
     cls      : section class (the highest over the member); 4 -> not checked
     Lcr_y, Lcr_z, Lw : effective lengths in m, None = that check is switched off
     mz_ed    : largest |Mz| anywhere in the member, N*m (only used to decide whether the
                bending and axial compression interaction, 6.3.3, is needed)
     """
-    lines = []
-
-    def tr(text=""):
-        if trace:
-            lines.append(text)
-
-    res = BucklingResult(trace=lines)
+    res = BucklingResult(sec, steel, gM1, bk, member_length, cls)
+    v = res.values
     P = sec.props
-    A, Iy, Iz, It, Iw = P["A"], P["Iy"], P["Iz"], P["It"], P["Iw"]
+    fy, E, G = steel.fy, steel.E, steel.G
     fy_mpa = fy / 1e6
     n_ed = max(0.0, max((-n for _, n, _ in stations), default=0.0))     # compression, N (>= 0)
     x_n = max(stations, key=lambda s: -s[1])[0] if stations else 0.0
     m_ed = max((abs(m) for _, _, m in stations), default=0.0)
     x_m = max(stations, key=lambda s: abs(s[2]))[0] if stations else 0.0
-    res.values.update({"N_Ed": n_ed, "x_N": x_n, "My_Ed": m_ed, "x_M": x_m, "Mz_Ed": mz_ed})
-
-    tr("MEMBER BUCKLING CHECK  (EN 1993-1-1, clause 6.3)")
-    tr(f"Section : {sec.name}   fy = {fy_mpa:g} N/mm2   E = {E/1e9:.1f} kN/mm2   "
-       f"G = {G/1e9:.1f} kN/mm2   gamma_M1 = {gM1:g}")
-    tr(f"  A = {eng(A*1e6)} mm2   Iy = {eng(Iy*1e12)} mm4   Iz = {eng(Iz*1e12)} mm4   "
-       f"It = {eng(It*1e12)} mm4   Iw = {eng(Iw*1e18)} mm6")
-    tr(f"Member length = {member_length:.3f} m   section class (highest over the member) = {cls}")
-    tr(f"Design values over the member:  N_Ed = {kN(n_ed)} kN compression (at x = {x_n:.3f} m)   "
-       f"|My|,Ed = {kN(m_ed)} kNm (at x = {x_m:.3f} m)")
-    tr()
+    v.update({"N_Ed": n_ed, "x_N": x_n, "My_Ed": m_ed, "x_M": x_m, "Mz_Ed": mz_ed})
 
     if cls >= 4:
         res.not_checked.append("class 4 section: member buckling with effective properties is "
                                "not implemented")
-        tr("NOT CHECKED: class 4 section.")
         return res
 
-    # --- 6.3.1 flexural buckling ---------------------------------------------------------
-    tr("1. FLEXURAL BUCKLING (6.3.1)")
-    npl = A * fy
-    for axis, I, Lcr, key in (("y", Iy, Lcr_y, "Nb,y"), ("z", Iz, Lcr_z, "Nb,z")):
+    # --- 6.3.1 flexural buckling -----------------------------------------------------------
+    npl = P.A * fy
+    for axis, I, Lcr, key in (("y", P.Iy, Lcr_y, "Nb,y"), ("z", P.Iz, Lcr_z, "Nb,z")):
         if Lcr is None:
-            tr(f"   {axis}-{axis}: switched off in members.csv")
+            res.flexural_state[axis] = "off"
             continue
         if n_ed <= 0:
+            res.flexural_state[axis] = "none"
             res.util[key] = 0.0
-            tr(f"   {axis}-{axis}: no compression in the member, no check needed")
             continue
+        res.flexural_state[axis] = "checked"
         ncr = PI ** 2 * E * I / Lcr ** 2
         lam = math.sqrt(npl / ncr)
-        curve = flexural_curve(bk, sec, fy_mpa, axis)
+        curve = sec.flexural_curve(bk, fy_mpa, axis)
         alpha = bk.alpha[curve]
-        if n_ed / ncr <= 0.04:
-            phi, chi = None, 1.0
-            plateau = f"N_Ed/Ncr = {n_ed/ncr:.3f} <= 0.04: no buckling check needed (6.3.1.2(4))"
+        if n_ed / ncr <= 0.04:                       # 6.3.1.2(4): no check needed
+            phi, chi, plateau = None, 1.0, True
         else:
             phi, chi = reduction_factor(lam, alpha, bk.lambda_0, 1.0, False)
-            plateau = None
+            plateau = False
         nb = chi * npl / gM1
         res.util[key] = n_ed / nb
-        res.values[f"Lcr_{axis}"] = Lcr
-        res.values[f"Ncr_{axis}"] = ncr
-        res.values[f"lam_{axis}"] = lam
-        res.values[f"chi_{axis}"] = chi
-        res.values[f"Nb_{axis}"] = nb
-        tr(f"   {axis}-{axis}: Lcr = {Lcr:.3f} m   Ncr = pi^2 E I{axis} / Lcr^2 = {kN(ncr)} kN")
-        tr(f"        lambda = sqrt(A fy / Ncr) = {lam:.3f}   curve {curve} (alpha = {alpha:g})")
-        if plateau:
-            tr(f"        {plateau}")
-        elif phi is None:
-            tr(f"        lambda <= {bk.lambda_0:g}: chi = 1")
-        else:
-            tr(f"        phi = 0.5 (1 + alpha (lambda - {bk.lambda_0:g}) + lambda^2) = {phi:.3f}")
-        tr(f"        chi = {chi:.3f}   Nb,{axis},Rd = chi A fy / gM1 = {kN(nb)} kN")
-        tr(f"        N_Ed / Nb,{axis},Rd = {kN(n_ed)} / {kN(nb)} = {res.util[key]:.3f}")
-    tr()
+        v.update({f"Lcr_{axis}": Lcr, f"Ncr_{axis}": ncr, f"lam_{axis}": lam,
+                  f"curve_{axis}": curve, f"alpha_{axis}": alpha, f"phi_{axis}": phi,
+                  f"plateau_{axis}": plateau, f"chi_{axis}": chi, f"Nb_{axis}": nb})
 
-    # --- 6.3.2 lateral-torsional buckling, general case --------------------------------------
-    tr("2. LATERAL-TORSIONAL BUCKLING, general case (6.3.2.2)")
+    # --- 6.3.2 lateral-torsional buckling, general case ------------------------------------
     if Lw is None:
-        tr("   switched off in members.csv")
+        res.ltb_state = "off"
     elif m_ed <= 0 or len(stations) < 2:
+        res.ltb_state = "none"
         res.util["LTB"] = 0.0
-        tr("   no bending about y-y: no check needed")
     else:
+        res.ltb_state = "checked"
         stations = sorted(stations)
         xs = [s[0] for s in stations]
         ms = [s[2] for s in stations]
-        c1 = c1_from_diagram(xs, ms, member_length, E, G, Iz, It, Iw)
-        mcr_u = mcr_uniform(E, G, Iz, It, Iw, Lw)
+        c1 = c1_from_diagram(xs, ms, member_length, E, G, P.Iz, P.It, P.Iw)
+        mcr_u = mcr_uniform(E, G, P.Iz, P.It, P.Iw, Lw)
         mcr = c1 * mcr_u
-        W = P["Wpl_y"] if cls <= 2 else P["Wel_y"]
+        W = P.Wpl_y if cls <= 2 else P.Wel_y
         lam_lt = math.sqrt(W * fy / mcr)
-        curve = ltb_curve(bk, sec)
+        curve = sec.ltb_curve(bk)
         alpha_lt = bk.alpha_LT[curve]
-        if m_ed / mcr <= bk.lambda_LT0 ** 2:
-            phi, chi = None, 1.0
-            plateau = f"M_Ed/Mcr = {m_ed/mcr:.3f} <= lambda_LT0^2: no LTB check needed (6.3.2.2(4))"
+        if m_ed / mcr <= bk.lambda_LT0 ** 2:         # 6.3.2.2(4): no check needed
+            phi, chi, plateau = None, 1.0, True
         else:
             phi, chi = reduction_factor(lam_lt, alpha_lt, bk.lambda_LT0, bk.beta_LT, True)
-            plateau = None
+            plateau = False
         mb = chi * W * fy / gM1
         res.util["LTB"] = m_ed / mb
-        res.values.update({"Lw": Lw, "C1": c1, "Mcr": mcr, "lam_LT": lam_lt, "chi_LT": chi,
-                           "Mb": mb})
-        tr(f"   Lw = {Lw:.3f} m   Mcr,uniform(Lw) = {kN(mcr_u)} kNm")
-        tr(f"   C1 from the moment diagram = {c1:.3f}   Mcr = C1 Mcr,uniform = {kN(mcr)} kNm")
-        tr(f"   W{'pl' if cls <= 2 else 'el'},y = {eng(W*1e9)} mm3   "
-           f"lambda_LT = sqrt(W fy / Mcr) = {lam_lt:.3f}")
-        tr(f"   h/b = {sec.h/sec.b:.2f}  curve {curve} (alpha_LT = {alpha_lt:g})   "
-           f"lambda_LT,0 = {bk.lambda_LT0:g}   beta = {bk.beta_LT:g}")
-        if plateau:
-            tr(f"   {plateau}")
-        elif phi is None:
-            tr(f"   lambda_LT <= {bk.lambda_LT0:g}: chi_LT = 1")
-        else:
-            tr(f"   phi_LT = {phi:.3f}")
-        tr(f"   chi_LT = {chi:.3f}   Mb,Rd = chi_LT W fy / gM1 = {kN(mb)} kNm")
-        tr(f"   |My|,Ed / Mb,Rd = {kN(m_ed)} / {kN(mb)} = {res.util['LTB']:.3f}")
+        v.update({"Lw": Lw, "Mcr_uniform": mcr_u, "C1": c1, "Mcr": mcr, "W_y": W,
+                  "lam_LT": lam_lt, "curve_LT": curve, "alpha_LT": alpha_lt, "phi_LT": phi,
+                  "plateau_LT": plateau, "chi_LT": chi, "Mb": mb})
         res.notes.append("LTB: Mcr assumes fork supports and loads at the shear centre "
                          "(top-flange loading would give a lower Mcr)")
         if abs(Lw - member_length) > 1e-6 * member_length:
             res.notes.append(f"LTB: Lw = {Lw:.3f} m differs from the member length "
                              f"{member_length:.3f} m: the fork-support C1 is applied to Lw "
                              f"(approximate)")
-    tr()
 
-    # --- 6.3.3 bending and axial compression: not implemented yet --------------------------
+    # --- 6.3.3 bending and axial compression: not implemented yet ---------------------------
     # The checks above treat N and M separately. A member with both compression and bending
     # needs the interaction (6.61)/(6.62), so it must not be reported as fully checked.
     compression = n_ed > INTERACTION_TOL * npl
-    bending = (m_ed > INTERACTION_TOL * P["Wpl_y"] * fy
-               or mz_ed > INTERACTION_TOL * P["Wpl_z"] * fy)
+    bending = (m_ed > INTERACTION_TOL * P.Wpl_y * fy
+               or mz_ed > INTERACTION_TOL * P.Wpl_z * fy)
     any_buckling = Lcr_y is not None or Lcr_z is not None or Lw is not None
-    tr("3. BENDING AND AXIAL COMPRESSION (6.3.3)")
     if compression and bending and any_buckling:
+        res.interaction_state = "flagged"
         res.not_checked.append(
             f"bending and axial compression interaction (6.3.3) is not implemented: "
             f"N_Ed = {n_ed/1e3:.1f} kN with |My| = {m_ed/1e3:.1f} kNm, |Mz| = {mz_ed/1e3:.1f} kNm")
-        tr(f"   N_Ed = {kN(n_ed)} kN with |My|,Ed = {kN(m_ed)} kNm and |Mz|,Ed = {kN(mz_ed)} kNm:")
-        tr("   NOT CHECKED - the interaction (6.61)/(6.62) is not implemented yet.")
     elif not any_buckling:
-        tr("   all buckling checks switched off in members.csv")
+        res.interaction_state = "off"
     else:
-        tr("   not needed: the member is not under both compression and bending")
-    tr()
-
-    if res.util:
-        name, value = res.governing
-        verdict = "FAILS" if value > 1.0 else "INCOMPLETE" if res.not_checked else "OK"
-        tr(f"GOVERNING: {name} = {value:.3f}   {verdict}"
-           + ("   (NOT FULLY CHECKED: " + "; ".join(res.not_checked) + ")"
-              if res.not_checked else ""))
+        res.interaction_state = "not needed"
     return res

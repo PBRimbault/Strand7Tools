@@ -2,8 +2,8 @@
 Design cases (load combinations) for the EC3 checks.
 
 design_cases.csv defines each design case as a factored sum of Strand7 result cases.
-This module reads and validates that file. Run it on its own to print what it found;
-it does not need Strand7.
+This module reads and validates that file; it does not need Strand7.
+tools/show_inputs.py prints what it found.
 
 Rules:
   - results from linear static (.LSA) files can be added together (superposition);
@@ -17,9 +17,6 @@ import csv
 import os
 from dataclasses import dataclass, field
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-DESIGN_CASES_FILE = os.path.join(HERE, "design_cases.csv")
-
 LINEAR_EXTENSIONS = {".lsa"}
 
 
@@ -29,7 +26,7 @@ class DesignCaseError(Exception):
 
 @dataclass(frozen=True)
 class Row:
-    result_file: str | None      # None = the default result file
+    result_file: str | None      # None = the default result file; else an absolute path
     result_case: int
     factor: float
     comment: str = ""
@@ -57,8 +54,11 @@ class DesignCase:
         return not self.is_direct
 
 
-def load_design_cases(path=DESIGN_CASES_FILE):
-    """Return {name: DesignCase} in file order, after validating every row."""
+def load_design_cases(path):
+    """
+    Return {name: DesignCase} in file order, after validating every row. A relative
+    result_file is taken relative to the folder of the design case file.
+    """
     if not os.path.isfile(path):
         raise DesignCaseError(f"Design case file not found: {path}")
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -91,8 +91,12 @@ def load_design_cases(path=DESIGN_CASES_FILE):
         if factor == 0:
             raise DesignCaseError(f"{where} ({name}): a factor of zero is almost certainly a "
                                   f"mistake; delete the row instead")
+        result_file = row.get("result_file") or None
+        if result_file and not os.path.isabs(result_file):
+            result_file = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(path)),
+                                                        result_file))
         cases.setdefault(name, DesignCase(name)).rows.append(
-            Row(row.get("result_file") or None, case_number, factor, row.get("comment", "")))
+            Row(result_file, case_number, factor, row.get("comment", "")))
 
     for case in cases.values():
         seen = set()
@@ -118,24 +122,3 @@ def file_warnings(cases):
             if r.result_file and not os.path.isfile(r.result_file):
                 out.append(f"{case.name}: result file not found: {r.result_file}")
     return out
-
-
-def main():
-    cases = load_design_cases()
-    print(f"Design case file: {DESIGN_CASES_FILE}")
-    print(f"{len(cases)} design cases\n")
-    for case in cases.values():
-        kind = ("direct from Strand7 (single row, factor 1)" if case.is_direct
-                else "factored sum of linear results")
-        print(f"Design case {case.name}   [{kind}]")
-        for r in case.rows:
-            where = r.result_file if r.result_file else "default result file"
-            note = f"   {r.comment}" if r.comment else ""
-            print(f"  {r.factor:>8.3f} x result case {r.result_case:<4} ({where}){note}")
-        print()
-    for w in file_warnings(cases):
-        print(f"WARNING: {w}")
-
-
-if __name__ == "__main__":
-    main()

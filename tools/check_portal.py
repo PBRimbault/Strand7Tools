@@ -1,6 +1,7 @@
 """
 Independent check of the app's member force diagrams against test_model3.st7 (portal frame).
-Needs Strand7 (read-only) and the solved results test_model3.LSA.   Run:  python check_portal.py
+Needs Strand7 (read-only) and the solved results test_model3.LSA.
+Run:  python tools\\check_portal.py [model file]      (default: Test\\test_model3.st7)
 
 The model: pitched portal, 10 m span, eaves 4.5 m, apex 6.5 m, fixed bases, UB 305x165x40.
 Eaves and apex restrained out of plane (Y). Case 1: gravity self weight + 1.3 kN/m on the
@@ -25,15 +26,13 @@ import os
 import sys
 import tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-import st7_setup  # noqa: E402
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+from strand7tools.strand7 import forces as mf  # noqa: E402
+from strand7tools.strand7.api import S, check, get_str, model_session  # noqa: E402
+from strand7tools.strand7.members import beam_axes, load_members  # noqa: E402
 
-MODEL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "test_model3.st7")
-st7_setup.MODEL_FILE = MODEL
-from st7_setup import St7API as S, check, model_session  # noqa: E402
-import member_forces as mf  # noqa: E402
-from members import beam_axes, get_str  # noqa: E402
+MODEL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "Test", "test_model3.st7")
 
 MEMBERS = """member,beams
 COL_L,1
@@ -125,10 +124,11 @@ def f_equiv(q, L):
 tmp = os.path.join(tempfile.gettempdir(), "members_verify.csv")
 with open(tmp, "w") as f:
     f.write(MEMBERS)
-mf.MEMBER_FILE = tmp
 
 with model_session(MODEL) as uid:
-    scale, label = mf.force_scale(uid)
+    scale = mf.force_scale(uid)
+    if scale is None:
+        raise SystemExit("the model must be in m with N, kN or MN")
 
     def tot(ent):
         v = ctypes.c_long()
@@ -189,16 +189,18 @@ with model_session(MODEL) as uid:
             loads[(lc, b)] = q
         loads[("gravity", lc)] = (g[0], gdir.value)
 
-    members = mf.load_members(uid)
+    members, member_errors = load_members(uid, tmp)
+    if member_errors:
+        raise SystemExit(f"members could not be built: {member_errors}")
     app = {}
-    with mf.result_file(uid, MODEL[:-4] + ".LSA", S.kUseExistingCombinations) as (npr, nsec):
+    with mf.result_file(uid, MODEL[:-4] + ".LSA", "existing") as (npr, nsec):
         names = {c: get_str(S.St7GetResultCaseName, uid, c) for c in range(1, npr + nsec + 1)}
         for c in names:
             for m in members:
                 app[(c, m.definition.member_id)] = mf.assemble(uid, m, c, scale)
 
 # ---------------------------------------------------------------- self weight
-print(f"\nforce scale to kN: {scale:g} ({label})")
+print(f"\nforce scale to kN: {scale:g}")
 for b, d in beams.items():
     d["L"] = math.dist(xyz[d["n1"]], xyz[d["n2"]])
 

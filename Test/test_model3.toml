@@ -1,0 +1,6 @@
+# Portal frame test model (10 m span, eaves 4.5 m, apex 6.5 m, fixed bases).
+# See strand7tools/project.py for all the keys. Paths are relative to this file.
+model = "test_model3.st7"
+members = "members_portal.csv"
+design_cases = "design_cases_portal.csv"
+output_folder = "output_portal"

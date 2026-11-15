@@ -1,21 +1,24 @@
 """
-Design case evaluation: pure logic, no Strand7 needed.
+Design case evaluation: pure logic, no Strand7 and no printing.
 
   combine()          adds factored member force diagrams (linear superposition)
   evaluate_member()  runs the EC3 cross-section checks at every station of a member
   summarise()        governing station, class, utilisation and status for a member / design case
+  buckling_check()   member buckling for a member / design case, from its station evaluations
+  pick_station()     the station for a worked calculation
+  status_rank()      sort key: failures first, then incomplete checks, then highest utilisation
 
-A member force diagram ("by_beam") is the structure made by member_forces.assemble():
+A member force diagram ("by_beam") is the structure made by strand7.forces.assemble():
     [(BeamInChain, [(x, {"N":.., "Vy":.., "Vz":.., "T":.., "My":.., "Mz":..}), ...]), ...]
 with forces in kN and kNm, in the member axes, tension positive.
 """
 
 from dataclasses import dataclass, field
 
-from ec3_checks import check_station
-from ec3_buckling import check_member_buckling
+from ..quantities import QUANTITIES
+from .buckling import check_member_buckling
+from .cross_section import check_cross_section
 
-QUANTITIES = ["N", "Vy", "Vz", "T", "My", "Mz"]
 CHECKS = ["N", "My", "Mz", "Vy", "Vz", "T", "N+M"]
 
 
@@ -59,17 +62,44 @@ class StationEval:
     beam: int
     x: float
     forces: dict                 # kN, kNm
-    result: object               # ec3_checks.StationResult
+    result: object               # cross_section.CrossSectionResult
 
 
-def evaluate_member(sec, fy, gM0, by_beam):
-    """Check every station. sec: ISection, fy in Pa. Returns [StationEval]."""
+def evaluate_member(sec, steel, gM0, by_beam):
+    """Check every station. Returns [StationEval]."""
     out = []
     for chain_beam, pts in by_beam:
         for x, f in pts:
             forces_si = {q: f[q] * 1e3 for q in QUANTITIES}      # kN, kNm -> N, N*m
-            out.append(StationEval(chain_beam.beam, x, f, check_station(sec, fy, gM0, forces_si)))
+            out.append(StationEval(chain_beam.beam, x, f,
+                                   check_cross_section(sec, steel, gM0, forces_si)))
     return out
+
+
+def status_of(util, not_checked):
+    """FAILS wins even if part of the check was not possible; OK only if everything was checked."""
+    if util is not None and util > 1.0:
+        return "FAILS (incomplete)" if not_checked else "FAILS"
+    if util is None:
+        return "NOT CHECKED"
+    if not_checked:
+        return "INCOMPLETE"
+    return "OK"
+
+
+def status_rank(status, util):
+    """
+    Sort key for choosing what to show: a failure first (even if the check was also incomplete),
+    then an incomplete check, then the highest utilisation. An incomplete check must never hide
+    a failing one, nor look better than a complete one.
+    """
+    if status.startswith("FAILS"):
+        group = 0
+    elif status in ("INCOMPLETE", "NOT CHECKED"):
+        group = 1
+    else:
+        group = 2
+    return (group, -(util if util is not None else -1.0))
 
 
 @dataclass
@@ -88,14 +118,7 @@ class Summary:
 
     @property
     def status(self):
-        """FAILS wins even if part of the check was not possible; OK only if everything was checked."""
-        if self.governing_util is not None and self.governing_util > 1.0:
-            return "FAILS (incomplete)" if self.not_checked else "FAILS"
-        if self.governing_util is None:
-            return "NOT CHECKED"
-        if self.not_checked:
-            return "INCOMPLETE"
-        return "OK"
+        return status_of(self.governing_util, self.not_checked)
 
 
 def summarise(member_id, design_case, evals):
@@ -126,7 +149,7 @@ def summarise(member_id, design_case, evals):
                    max_by_check, not_checked, notes)
 
 
-def buckling_check(sec, fy, E, G, gM1, bk, evals, member_length, lengths, trace=False):
+def buckling_check(sec, steel, gM1, bk, evals, member_length, lengths):
     """
     Member buckling (EC3 6.3.1 and 6.3.2) for one member and design case, from its station
     evaluations. lengths = {"Lcr_y", "Lcr_z", "Lw"} in m (None = switched off).
@@ -134,6 +157,19 @@ def buckling_check(sec, fy, E, G, gM1, bk, evals, member_length, lengths, trace=
     stations = [(e.x, e.forces["N"] * 1e3, e.forces["My"] * 1e3) for e in evals]
     mz_ed = max((abs(e.forces["Mz"]) * 1e3 for e in evals), default=0.0)
     cls = max((e.result.cls for e in evals), default=0)
-    return check_member_buckling(sec, fy, E, G, gM1, bk, stations, member_length, cls,
-                                 lengths["Lcr_y"], lengths["Lcr_z"], lengths["Lw"], trace,
-                                 mz_ed=mz_ed)
+    return check_member_buckling(sec, steel, gM1, bk, stations, member_length, cls,
+                                 lengths["Lcr_y"], lengths["Lcr_z"], lengths["Lw"], mz_ed=mz_ed)
+
+
+def pick_station(evals, x=None):
+    """
+    The station for a worked calculation: the one nearest x (m), or with x = None the governing
+    station (if nothing could be checked, the one with the largest |My|). Returns (StationEval,
+    description).
+    """
+    if x is not None:
+        return min(evals, key=lambda ev: abs(ev.x - x)), f"station nearest x = {x:g} m"
+    scored = [(e.result.governing[1], e) for e in evals if e.result.governing[1] is not None]
+    e = (max(scored, key=lambda t: t[0])[1] if scored
+         else max(evals, key=lambda ev: abs(ev.forces["My"])))
+    return e, "governing station"

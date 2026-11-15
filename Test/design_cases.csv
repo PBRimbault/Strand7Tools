@@ -3,9 +3,9 @@
 # A design case is a factored sum of Strand7 result cases. One row per term:
 #
 # design_case : name of the design case; use the same name on every row of the case
-# result_file : full path to the result file; leave blank for the default result file
-# result_case : result case NUMBER in that file (see the list printed by step2_forces.py
-#               or member_forces.py); combination cases made by Strand7 can be used too
+# result_file : path to the result file (full, or relative to this file); blank = the default
+# result_case : result case NUMBER in that file (see the list printed by tools/list_forces.py)
+#               combination cases made by Strand7 can be used too
 # factor      : multiplier for that case (negative values are allowed, zero is not)
 # comment     : anything you like
 #

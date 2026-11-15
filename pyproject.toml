@@ -1,0 +1,13 @@
+[project]
+name = "strand7tools"
+version = "0.1.0"
+description = "Strand7 results -> design members -> EC3 (EN 1993-1-1) checks"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]

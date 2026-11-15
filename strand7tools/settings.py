@@ -1,19 +1,17 @@
 """
 Loads the design settings (settings.toml) and the steel grade table (steel_grades.csv).
-
-Run this file on its own to print what was loaded, with a small table of fy and fu by
-thickness, so you can check the values. It does not need Strand7.
+No Strand7 needed. The shipped defaults are in strand7tools/data; a project file can point
+to its own copies. tools/show_inputs.py prints what was loaded.
 """
 
 import csv
-import math
 import os
 import tomllib
 from dataclasses import dataclass
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SETTINGS_FILE = os.path.join(HERE, "settings.toml")
-GRADES_FILE = os.path.join(HERE, "steel_grades.csv")
+DATA_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+SETTINGS_FILE = os.path.join(DATA_FOLDER, "settings.toml")
+GRADES_FILE = os.path.join(DATA_FOLDER, "steel_grades.csv")
 
 
 class SettingsError(Exception):
@@ -216,49 +214,3 @@ def strength(grades, grade, thickness_mm):
             return fy, fu
     raise SettingsError(f"no strength data for {grade} at {thickness_mm:g} mm "
                         f"(the table goes up to {bands[-1][0]:g} mm)")
-
-
-def eng(x, decimals=3):
-    """Engineering notation, e.g. 210.000e+03."""
-    if x == 0:
-        return f"{0:.{decimals}f}e+00"
-    exp = int(math.floor(math.log10(abs(x)) / 3) * 3)
-    return f"{x / 10 ** exp:.{decimals}f}e{exp:+03d}"
-
-
-def main():
-    s = load_settings()
-    grades = load_grades()
-
-    print(f"Settings file : {SETTINGS_FILE}")
-    print(f"  material source : {s.material_source}")
-    print(f"  E (if 'ec3')    : {eng(s.E_ec3)} N/mm2")
-    print(f"  G (if 'ec3')    : {eng(s.G_ec3)} N/mm2")
-    print(f"  default grade   : {s.default_grade}")
-    print(f"  thickness rule  : {s.thickness_rule}")
-    print(f"  gamma_M0, M1, M2: {s.gamma_M0:g}, {s.gamma_M1:g}, {s.gamma_M2:g}")
-    print(f"  eta (Av,z)      : {s.eta:g}")
-    b = s.buckling
-    print(f"  buckling        : lambda_0 = {b.lambda_0:g}, lambda_LT0 = {b.lambda_LT0:g}, "
-          f"beta_LT = {b.beta_LT:g}, alpha = {b.alpha}, alpha_LT = {b.alpha_LT}")
-    if s.default_grade not in grades:
-        print(f"  WARNING: default grade {s.default_grade!r} is not in the grade table")
-    print()
-
-    thicknesses = [10, 16, 20, 40, 50, 63, 80, 100]
-    print(f"Grade table   : {GRADES_FILE}")
-    print("  fy / fu in N/mm2 by thickness (mm)")
-    print(f"  {'grade':<7}" + "".join(f"{t:>10}" for t in thicknesses))
-    for grade in grades:
-        cells = []
-        for t in thicknesses:
-            try:
-                fy, fu = strength(grades, grade, t)
-                cells.append(f"{fy:g}/{fu:g}")
-            except SettingsError:
-                cells.append("-")
-        print(f"  {grade:<7}" + "".join(f"{c:>10}" for c in cells))
-
-
-if __name__ == "__main__":
-    main()

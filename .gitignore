@@ -17,3 +17,7 @@ venv/
 
 # Editor
 .vscode/
+.pytest_cache/
+
+# Results written by the app (regenerate by running it)
+Test/output*/

@@ -7,7 +7,7 @@
 # Where E and G come from:
 #   "model" - read from the Strand7 beam material (keeps the checks consistent with the analysis)
 #   "ec3"   - use E_ec3 and G_ec3 below
-# With "model", E_ec3 and G_ec3 are the reference values: ec3_run.py warns if the model
+# With "model", E_ec3 and G_ec3 are the reference values: run_ec3.py warns if the model
 # material differs from them by more than 1% (the model values are still used).
 source = "model"
 E_ec3 = 210000.0        # N/mm2  (EN 1993-1-1, 3.2.6)

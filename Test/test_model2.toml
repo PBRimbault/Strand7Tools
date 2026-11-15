@@ -1,0 +1,14 @@
+# Project file: one Strand7 model and the inputs for checking it (see strand7tools/project.py).
+# Paths are relative to this file.
+model = "test_model2.st7"
+members = "members.csv"
+design_cases = "design_cases.csv"
+
+# Optional (defaults shown):
+# result_file = ""                  # "" = the model's name with .LSA
+# combinations = "existing"         # Strand7 combination cases: "none", "existing", "generate"
+# run_cases = []                    # design cases to run; [] = all
+# stations_per_beam = 21            # stations per beam when cases are added together (odd is best)
+# settings = ""                     # "" = strand7tools/data/settings.toml
+# steel_grades = ""                 # "" = strand7tools/data/steel_grades.csv
+output_folder = "output"

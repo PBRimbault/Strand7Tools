@@ -1,0 +1,7 @@
+# Member table for test_model3.st7 (portal frame); see members.csv for the columns.
+# The left rafter is three beams (one reversed); the right rafter one beam running apex to eaves.
+member,beams,buckling_y,kcr_y,lcr_y,buckling_z,kcr_z,lcr_z,ltb,kz,kw,lw,grade,comment
+COL_L,1,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,left column
+COL_R,2,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,right column
+RAF_L,6;5;3,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,left rafter
+RAF_R,4,yes,1.0,,yes,1.0,,yes,1.0,1.0,,,right rafter
